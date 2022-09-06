@@ -1,0 +1,224 @@
+#!/bin/sh
+
+# Export the LC as the default C so that we do not run into locale based quirks
+LC_ALL=C
+export LC_ALL
+
+readonly VERSION="0.0.1"
+readonly APP_NAME="autoclip"
+
+readonly DEFAULT_HOOKS_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/${APP_NAME}"
+
+# Debug logging
+DEBUG=0
+
+##
+# Log
+#
+# $@ messages
+##
+log() {
+  printf -- '[%s] %s\n' "${APP_NAME}" "$@"
+}
+
+##
+# Error Log
+#
+# $@ messages
+##
+elog() {
+  printf -- '[%s] %s\n' "${APP_NAME}" "$@" 1>&2
+}
+
+##
+# Debug Log
+#
+# $@ messages
+##
+dlog() {
+  # Defined at call site
+  if [ "${DEBUG}" -ne 0 ]; then
+    printf -- '[%s] %s\n' "${APP_NAME}" "$@"
+  fi
+}
+
+_print_usage()
+{
+  printf -- "%s\n" "$(cat <<EOF
+${APP_NAME} [${VERSION}]
+
+  -h | --help                          Print this help
+  --debug                              Enables debug logging
+
+  -d [directory] | --dir [directory]   Look for hooks in a directory (default: ${DEFAULT_HOOKS_DIR})
+  --xclip                              Force usage of xclip
+  --pbpaste                            Force usage of pbpaste
+
+EOF
+)"
+
+  return 0
+}
+
+_create_hooks_dir()
+{
+  h_dir="$1"
+
+  if [ "${h_dir}" = "${DEFAULT_HOOKS_DIR}" ]; then
+    if [ ! -d "${h_dir}" ]; then
+      log "Create default hooks directory: ${h_dir}"
+      mkdir -p "${h_dir}" || return 1
+    fi
+  fi
+
+  unset h_dir
+  return 0
+}
+
+_run_hooks()
+{
+  h_dir="$1"
+  h_content="$2"
+
+  # Check if directory is empty: https://superuser.com/questions/352289/bash-scripting-test-for-empty-directory
+  # Can't use [ ] need to use test directly
+  test -e "${h_dir}"/*.hook 2>/dev/null
+  # There are no files in this directory
+  if [ "$?" -eq 1 ]; then
+    elog "Cannot respond to clipboard content, no hooks found"
+    return 1
+  fi
+
+  dlog "Running hooks in ${h_dir} with content: ${h_content}"
+  for hook in "${h_dir}"/*.hook; do
+    dlog "Running hook: ${hook}..."
+    if "${hook}" "${h_content}"; then
+      break
+    fi
+  done
+
+  unset h_dir
+  unset h_content
+  return 0
+}
+
+_watch_clipboard()
+{
+  h_dir="$1"
+  expect_command="$2"
+  clip_command=""
+
+  if [ -n "${expect_command}" ]; then
+    dlog "Watching clipboard with explicit command: ${expect_command}"
+    clip_command="${expect_command}"
+  elif command -v xclip > /dev/null 2>&1; then
+    dlog "Watching clipboard with xclip: $*"
+    clip_command="xclip -o -sel clip"
+  elif command -v pbpaste > /dev/null 2>&1; then
+    dlog "Watching clipboard with pbpaste: $*"
+    clip_command="pbpaste"
+  else
+    elog "Missing supported clipboard commands 'pbpaste' or 'xclip'"
+    return 1
+  fi
+
+
+  can_loop=1
+  # Kill the loop on Ctrl+C
+  trap "can_loop=0" INT
+
+  dlog "Loop clipboard ${h_dir} '${clip_command}'"
+
+  current_clip="$("${clip_command}")"
+  while [ "${can_loop}" -eq 1 ]; do
+    new_clip="$("${clip_command}")"
+
+    # If the clipboard has changed, do stuff
+    if [ "${new_clip}" != "${current_clip}" ]; then
+      current_clip="${new_clip}"
+      _run_hooks "${h_dir}" "${new_clip}"
+    fi
+    sleep 1
+  done
+
+  dlog "Done looping"
+
+  unset h_dir
+  unset expect_command
+  unset clip_command
+  return 0
+}
+
+
+main()
+{
+  main__hooks_dir="${DEFAULT_HOOKS_DIR}"
+  main__expect_command=""
+
+  # Option parsing
+  opt="$1"
+  while [ -n "${opt}" ]; do
+    # Eat argument
+    shift
+
+    if [ "${opt}" = "-d" ] || [ "${opt}" = "--dir" ]; then
+      # Next argument is path
+      main__hooks_dir="$1"
+
+      # Eat the argument
+      shift
+
+      if [ -z "${main__hooks_dir}" ]; then
+        elog "Must provide hooks directory path"
+        return 1
+      fi
+
+      if [ ! -d "${main__hooks_dir}" ]; then
+        elog "${main__hooks_dir} is not a readable directory"
+        return 1
+      fi
+    elif [ "${opt}" = "--debug" ]; then
+      DEBUG=1
+    elif [ "${opt}" = "--xclip" ]; then
+      if command -v xclip > /dev/null 2>&1; then
+        log "Forcing 'xclip' mode"
+        main__expect_command="xclip -o -sel clip"
+      else
+        elog "Cannot force 'xclip', cannot find 'xclip' program on \$PATH, fallback to autoselect"
+      fi
+    elif [ "${opt}" = "--pbpaste" ]; then
+      if command -v pbpaste > /dev/null 2>&1; then
+        log "Forcing 'pbpaste' mode"
+        main__expect_command="pbpaste"
+      else
+        elog "Cannot force 'pbpaste', cannot find 'pbpaste' program on \$PATH, fallback to autoselect"
+      fi
+    elif [ "${opt}" = "-h" ] || [ "${opt}" = "--help" ]; then
+      _print_usage || return 1
+      return 0
+    fi
+
+    # Reassign
+    opt="$1"
+  done
+
+  _create_hooks_dir "${main__hooks_dir}" || return 1
+
+  dlog "$(cat <<EOF
+${APP_NAME} [${VERSION}] launched with config:
+
+  [hooks] = ${main__hooks_dir}
+  [command] = "${main__expect_command}"
+EOF
+)"
+
+  log "${APP_NAME} [${VERSION}] is watching the clipboard..."
+  _watch_clipboard "${main__hooks_dir}" "${main__expect_command}" || return 1
+
+  unset main__expect_command
+  unset main__hooks_dir
+  return 0
+}
+
+main "$@" || exit 1
+exit 0

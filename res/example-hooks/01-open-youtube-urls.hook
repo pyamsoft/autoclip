@@ -1,0 +1,66 @@
+#!/bin/sh
+
+#
+# Exit Codes:
+#
+# 0: success - terminating
+# 1: error - prerequisite not met
+# 2: error - cannot grep without PCRE support
+# 3: error - failed to open
+#
+
+# A hook which opens firefox for any given youtube URL
+
+# No input, fail
+if [ -z "$1" ]; then
+  printf -- 'Missing input\n'
+  exit 1
+fi
+
+# We need GNU grep
+
+# On MacOS, GNU grep is called ggrep by homebrew
+if command -v ggrep > /dev/null 2>&1; then
+  cmd="ggrep"
+else
+  cmd="grep"
+fi
+
+if ! command -v "${cmd}" > /dev/null 2>&1; then
+  printf -- 'Cannot find valid grep command: %s\n' "${cmd}"
+  exit 1
+fi
+
+# On Linux we can use xdg-open, or just fallback to open (works on MacOS)
+if command -v xdg-open > /dev/null 2>&1; then
+  op="xdg-open"
+else
+  op="open"
+fi
+
+if ! command -v "${op}" > /dev/null 2>&1; then
+  printf -- 'Cannot find valid open command: %s\n' "${op}"
+  exit 1
+fi
+
+# Check that this grep supports PCRE regex
+if echo test | "${cmd}" -P 'test' > /dev/null 2>&1; then
+  # Discover any Youtube URL
+  readonly youtube_url_regex="((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube(-nocookie)?\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?"
+
+  youtube_url="$(printf -- '%s' "$1" | "${cmd}" -P "${youtube_url_regex}")"
+  if [ -n "${youtube_url}" ]; then
+    "${op}" "${youtube_url}" || {
+      printf -- 'Failed to open YouTube URL with command: %s "%s"\n' "${op}" "${youtube_url}"
+      exit 3
+    }
+  fi
+
+  # Terminating hook, do not call any further
+  exit 0
+else
+  printf -- '%s does not support PCRE (-P)\n' "${cmd}"
+  exit 2
+fi
+
+
