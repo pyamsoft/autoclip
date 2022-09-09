@@ -85,7 +85,7 @@ _run_hooks()
   test -e "${h_dir}"/*.hook 2>/dev/null
   # There are no files in this directory
   if [ "$?" -eq 1 ]; then
-    elog "Cannot respond to clipboard content, no hooks found"
+    elog "Cannot respond to clipboard content, no hooks found: ${h_dir}"
     return 1
   fi
 
