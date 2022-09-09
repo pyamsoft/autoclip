@@ -77,34 +77,34 @@ _create_hooks_dir()
 
 _run_hooks()
 {
-  h_dir="$1"
-  h_content="$2"
+  run_dir="$1"
+  hook_content="$2"
 
   # Check if directory is empty: https://superuser.com/questions/352289/bash-scripting-test-for-empty-directory
   # Can't use [ ] need to use test directly
-  test -e "${h_dir}"/*.hook 2>/dev/null
+  test -e "${run_dir}"/*.hook 2>/dev/null
   # There are no files in this directory
   if [ "$?" -eq 1 ]; then
-    elog "Cannot respond to clipboard content, no hooks found: ${h_dir}"
+    elog "Cannot respond to clipboard content, no hooks found: ${run_dir}"
     return 1
   fi
 
-  dlog "Running hooks in ${h_dir} with content: ${h_content}"
-  for hook in "${h_dir}"/*.hook; do
+  dlog "Running hooks in ${run_dir} with content: ${hook_content}"
+  for hook in "${run_dir}"/*.hook; do
     dlog "Running hook: ${hook}..."
-    if "${hook}" "${h_content}"; then
+    if "${hook}" "${hook_content}"; then
       break
     fi
   done
 
-  unset h_dir
-  unset h_content
+  unset run_dir
+  unset hook_content
   return 0
 }
 
 _watch_clipboard()
 {
-  h_dir="$1"
+  watch_dir="$1"
   expect_command="$2"
   clip_command=""
 
@@ -127,7 +127,7 @@ _watch_clipboard()
   # Kill the loop on Ctrl+C
   trap "can_loop=0" INT
 
-  dlog "Loop clipboard ${h_dir} '${clip_command}'"
+  dlog "Loop clipboard ${watch_dir} '${clip_command}'"
 
   current_clip="$("${clip_command}")"
   while [ "${can_loop}" -eq 1 ]; do
@@ -136,14 +136,14 @@ _watch_clipboard()
     # If the clipboard has changed, do stuff
     if [ "${new_clip}" != "${current_clip}" ]; then
       current_clip="${new_clip}"
-      _run_hooks "${h_dir}" "${new_clip}"
+      _run_hooks "${watch_dir}" "${new_clip}"
     fi
     sleep 1
   done
 
   dlog "Done looping"
 
-  unset h_dir
+  unset watch_dir
   unset expect_command
   unset clip_command
   return 0
