@@ -134,7 +134,7 @@ _watch_clipboard()
     new_clip="$("${clip_command}")"
 
     # If the clipboard has changed, do stuff
-    if [ "${new_clip}" != "${current_clip}" ]; then
+    if [ -n "${new_clip}" ] && [ "${new_clip}" != "${current_clip}" ]; then
       current_clip="${new_clip}"
       _run_hooks "${watch_dir}" "${new_clip}"
     fi
